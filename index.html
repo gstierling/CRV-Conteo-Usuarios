@@ -204,8 +204,7 @@
 
 <script>
 /* ============== CONFIG ============== */
-const SHEET_ID = "1txnN8wXrYpBtD9H23n7IUwSP8dfsyhe6zrd47d_3GH4";
-const CSV_URL  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
+const CSV_URL  = "https://script.google.com/macros/s/AKfycbzNJNHpEbKyvytX-fWMGOyR-HrjBfv8uT0XTzxbAri1CtywUfVNvv6glMcprPoyNvJF/exec";
 const REFRESH_MS = 30000;
 
 // Columnas (índice 0-based según orden real de la planilla)
@@ -414,7 +413,7 @@ function renderFormulaBand(){
 /* ============== FETCH & ORQUESTACIÓN ============== */
 async function cargarDatos(){
   try {
-    const res = await fetch(CSV_URL + "&_=" + Date.now());
+    const res = await fetch(CSV_URL + "?_=" + Date.now());
     if (!res.ok) throw new Error("HTTP " + res.status);
     const text = await res.text();
     const allRows = parseCSV(text);
