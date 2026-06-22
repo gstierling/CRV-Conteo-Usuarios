@@ -602,6 +602,11 @@ async function cargarDatos(){
     const allRows=parseCSV(text);
     const dataRows=allRows.slice(1).filter(r=>(r[C.circuito]||'').trim()!=='');
 
+    // DEBUG TEMPORAL: mostrar primeras fechas crudas
+    const muestras=dataRows.slice(0,3).map(r=>`"${r[C.fechaConteo]}"`).join(' | ');
+    document.getElementById('fechaUltimoSabado').textContent='DEBUG fechas: '+muestras;
+    return; // detener aquí para ver el debug
+
     const filteredRows=filtrarDatos(dataRows);
 
     if(filteredRows.length===0){
