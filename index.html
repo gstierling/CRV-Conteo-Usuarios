@@ -53,8 +53,13 @@
     background:var(--bg-card);border:1px solid var(--border);
     border-radius:14px;padding:28px 44px;text-align:center;flex:1;min-width:220px;max-width:380px;
   }
-  .total-blk .lbl{font-size:13px;text-transform:uppercase;letter-spacing:0.09em;color:var(--text-dim);font-weight:900;}
+  .total-blk .lbl{font-size:26px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);font-weight:900;}
   .total-blk .num{font-size:72px;font-weight:900;color:var(--orange);margin-top:8px;line-height:1;}
+
+  @media(max-width:768px){
+    .total-blk .lbl{font-size:22px;}
+    .total-blk .num{font-size:64px;}
+  }
 
   /* DONUTS GRID */
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;margin-top:28px;}
@@ -110,8 +115,6 @@
   .btn:hover{border-color:var(--orange);transform:translateY(-1px);}
   .btn.primary{background:var(--orange);border-color:var(--orange);color:#1a0d00;}
   .empty-state{text-align:center;color:var(--text-dim);padding:50px 20px;font-weight:700;font-size:15px;}
-
-  @media(max-width:520px){.kpi-num{font-size:32px;}.total-blk .num{font-size:28px;}}
 </style>
 </head>
 <body>
@@ -141,7 +144,7 @@
   <!-- Gráfico asistencia comparada -->
   <div class="section-title">Asistencia percibida comparada con jornada anterior</div>
   <div class="chart-bar-box">
-    <div class="chart-bar-inner"><canvas id="chartAsistencia"></canvas></div>
+    <div class="chart-bar-inner" style="height:340px;"><canvas id="chartAsistencia"></canvas></div>
   </div>
 
   <!-- Gráfico distribución por sexo -->
@@ -352,18 +355,21 @@ const centerTotalPlugin={
     const{ctx,chartArea}=chart;
     const cx=(chartArea.left+chartArea.right)/2;
     const cy=(chartArea.top+chartArea.bottom)/2;
-    const radius=(chartArea.right-chartArea.left)/2;
-    // Tamaño de fuente adaptativo al radio del donut
-    const fontSize=Math.max(22, Math.round(radius*0.38));
+    // Radio interior de la dona = radio total × (1 - cutout%) 
+    // cutout es '62%' → radio interior = radio * 0.62
+    const radioTotal=(chartArea.right-chartArea.left)/2;
+    const radioInterior=radioTotal*0.62;
+    // Fuente máxima que cabe con ~15% de margen interior
+    const fontSize=Math.floor(radioInterior*0.48);
     ctx.save();
     ctx.textAlign='center';
     ctx.textBaseline='middle';
     ctx.font=`900 ${fontSize}px Nunito, sans-serif`;
     ctx.fillStyle='#ffffff';
-    ctx.fillText(val.toLocaleString('es-CL'),cx,cy-6);
-    ctx.font='700 11px Nunito, sans-serif';
+    ctx.fillText(val.toLocaleString('es-CL'),cx,cy-Math.round(fontSize*0.18));
+    ctx.font=`700 ${Math.max(10,Math.round(fontSize*0.32))}px Nunito, sans-serif`;
     ctx.fillStyle='#8b949e';
-    ctx.fillText('TOTAL',cx,cy+fontSize*0.72);
+    ctx.fillText('TOTAL',cx,cy+Math.round(fontSize*0.58));
     ctx.restore();
   }
 };
@@ -439,44 +445,86 @@ function renderDonuts(filteredRows){
 
 /* ===== GRÁFICO ASISTENCIA ===== */
 function renderAsistencia(filteredRows){
-  // Agrupar: respuesta -> lista de circuitos
-  const conteo={};
-  filteredRows.forEach(r=>{
-    const v=(r[C.asistencia]||'Sin respuesta').trim();
-    if(!conteo[v]) conteo[v]=[];
-    conteo[v].push((r[C.circuito]||'').trim());
+  // Orden fijo de respuestas (de menor a mayor)
+  const OPCIONES=['Mucho menor','Menor','Parecida','Mayor','Mucho mayor'];
+  const COLORES_OP=['#fb7185','#f97316','#facc15','#00d4aa','#34d399'];
+
+  // Circuitos en orden alfabético, Viña al final
+  const ordenados=[...filteredRows].sort((a,b)=>{
+    const ca=(a[C.circuito]||'').trim(),cb=(b[C.circuito]||'').trim();
+    if(ca==='Viña del Mar') return 1;
+    if(cb==='Viña del Mar') return -1;
+    return ca.localeCompare(cb,'es');
   });
-  const labels=Object.keys(conteo);
-  const data=labels.map(l=>conteo[l].length);
-  const colors=['#f97316','#00d4aa','#60a5fa','#e879f9','#facc15','#fb7185'];
+
+  const labels=ordenados.map(r=>(r[C.circuito]||'').trim());
+
+  // Para cada opción: 1 si ese circuito la respondió, 0 si no
+  const datasets=OPCIONES.map((op,oi)=>({
+    label:op,
+    data:ordenados.map(r=>(r[C.asistencia]||'').trim()===op?1:0),
+    backgroundColor:COLORES_OP[oi],
+    borderRadius:0,
+    borderWidth:0,
+    stack:'s'
+  }));
 
   const ctx=document.getElementById('chartAsistencia');
   if(!ctx) return;
   if(chartAsistencia) chartAsistencia.destroy();
   chartAsistencia=new Chart(ctx,{
     type:'bar',
-    data:{
-      labels,
-      datasets:[{
-        data,
-        backgroundColor:labels.map((_,i)=>colors[i%colors.length]),
-        borderRadius:8,borderWidth:0
-      }]
-    },
+    data:{labels,datasets},
     options:{
+      indexAxis:'y',
       responsive:true,maintainAspectRatio:false,
       plugins:{
-        legend:{display:false},
-        tooltip:{callbacks:{label:(i)=>{
-          const circs=conteo[labels[i.dataIndex]]||[];
-          return [` ${i.raw} circuito(s):`, ...circs.map(c=>`  · ${c}`)];
-        }}}
+        legend:{
+          display:true,
+          reverse:true,
+          labels:{color:'#ffffff',font:{size:13,weight:'700',family:'Nunito'},boxWidth:14,padding:16}
+        },
+        tooltip:{callbacks:{
+          label:(i)=>` ${i.dataset.label}: ${i.raw===1?'Sí':'No'}`
+        }},
+        // Mostrar etiqueta dentro de cada segmento
+        datalabels:{display:false}
       },
       scales:{
-        x:{ticks:{color:'#8b949e',font:{size:14,weight:'700',family:'Nunito'}},grid:{color:'rgba(255,255,255,0.04)'}},
-        y:{ticks:{color:'#8b949e',font:{size:14,weight:'700',family:'Nunito'},stepSize:1},grid:{color:'rgba(255,255,255,0.07)'}}
+        x:{
+          stacked:true,display:false,
+          grid:{display:false}
+        },
+        y:{
+          stacked:true,
+          ticks:{color:'#ffffff',font:{size:14,weight:'700',family:'Nunito'}},
+          grid:{color:'rgba(255,255,255,0.04)'}
+        }
       }
-    }
+    },
+    // Plugin inline para mostrar el texto de la respuesta dentro de la barra
+    plugins:[{
+      id:'asistenciaLabel',
+      afterDatasetsDraw(chart){
+        const{ctx,data}=chart;
+        data.datasets.forEach((ds,di)=>{
+          const meta=chart.getDatasetMeta(di);
+          if(meta.hidden) return;
+          meta.data.forEach((bar,i)=>{
+            if(ds.data[i]!==1) return;
+            const{x,y,width,height}=bar.getProps(['x','y','width','height'],true);
+            if(width<30) return;
+            ctx.save();
+            ctx.textAlign='center';
+            ctx.textBaseline='middle';
+            ctx.fillStyle='rgba(0,0,0,0.75)';
+            ctx.font=`800 ${Math.min(13,Math.max(10,Math.round(height*0.45)))}px Nunito,sans-serif`;
+            ctx.fillText(ds.label, x-width/2+width/2, y+height/2);
+            ctx.restore();
+          });
+        });
+      }
+    }]
   });
 }
 
@@ -496,29 +544,51 @@ function renderSexo(filteredRows){
   const datH=ordenados.map(r=>colsH.reduce((acc,col)=>acc+toNum(r[col]),0));
   const datM=ordenados.map(r=>colsM.reduce((acc,col)=>acc+toNum(r[col]),0));
 
-  // Agregar fila Total
   labels.push('Total');
   datH.push(datH.reduce((a,b)=>a+b,0));
   datM.push(datM.reduce((a,b)=>a+b,0));
 
-  // Convertir a porcentajes para barras apiladas
-  const pctH=datH.map((h,i)=>{
-    const t=h+datM[i]; return t>0?Math.round(h/t*1000)/10:0;
-  });
-  const pctM=datM.map((m,i)=>{
-    const t=datH[i]+m; return t>0?Math.round(m/t*1000)/10:0;
-  });
+  const pctH=datH.map((h,i)=>{const t=h+datM[i];return t>0?Math.round(h/t*1000)/10:0;});
+  const pctM=datM.map((m,i)=>{const t=datH[i]+m;return t>0?Math.round(m/t*1000)/10:0;});
 
   const ctx=document.getElementById('chartSexo');
   if(!ctx) return;
   if(chartSexo) chartSexo.destroy();
+
+  // Plugin inline para dibujar el % dentro de cada segmento
+  const pctLabelPlugin={
+    id:'pctLabel',
+    afterDatasetsDraw(chart){
+      const{ctx:c,data}=chart;
+      data.datasets.forEach((ds,di)=>{
+        const meta=chart.getDatasetMeta(di);
+        if(meta.hidden) return;
+        const pctArr=di===0?pctH:pctM;
+        meta.data.forEach((bar,i)=>{
+          const pct=pctArr[i];
+          if(pct<5) return; // no mostrar si segmento muy chico
+          const{x,y,width,height}=bar.getProps(['x','y','width','height'],true);
+          if(width<28) return;
+          c.save();
+          c.textAlign='center';
+          c.textBaseline='middle';
+          c.fillStyle='rgba(0,0,0,0.8)';
+          const fs=Math.min(14,Math.max(10,Math.round(height*0.48)));
+          c.font=`900 ${fs}px Nunito,sans-serif`;
+          c.fillText(`${pct}%`, x-width/2+width/2, y+height/2);
+          c.restore();
+        });
+      });
+    }
+  };
+
   chartSexo=new Chart(ctx,{
     type:'bar',
     data:{
       labels,
       datasets:[
-        {label:'Hombres %',data:pctH,backgroundColor:'#60a5fa',borderRadius:0,borderWidth:0,stack:'s'},
-        {label:'Mujeres %', data:pctM,backgroundColor:'#e879f9',borderRadius:0,borderWidth:0,stack:'s'},
+        {label:'Hombres',data:pctH,backgroundColor:'#60a5fa',borderRadius:0,borderWidth:0,stack:'s'},
+        {label:'Mujeres', data:pctM,backgroundColor:'#e879f9',borderRadius:0,borderWidth:0,stack:'s'},
       ]
     },
     options:{
@@ -539,18 +609,11 @@ function renderSexo(filteredRows){
         }}
       },
       scales:{
-        x:{
-          stacked:true,max:100,
-          ticks:{color:'#8b949e',font:{size:13,family:'Nunito'},callback:v=>v+'%'},
-          grid:{color:'rgba(255,255,255,0.07)'}
-        },
-        y:{
-          stacked:true,
-          ticks:{color:'#ffffff',font:{size:14,weight:'700',family:'Nunito'}},
-          grid:{color:'rgba(255,255,255,0.04)'}
-        }
+        x:{stacked:true,max:100,ticks:{color:'#8b949e',font:{size:13,family:'Nunito'},callback:v=>v+'%'},grid:{color:'rgba(255,255,255,0.07)'}},
+        y:{stacked:true,ticks:{color:'#ffffff',font:{size:14,weight:'700',family:'Nunito'}},grid:{color:'rgba(255,255,255,0.04)'}}
       }
-    }
+    },
+    plugins:[pctLabelPlugin]
   });
 }
 
@@ -566,11 +629,9 @@ function renderTablaGenerica(headId, bodyId, filteredRows, colPairs){
   const headEl=document.getElementById(headId);
   headEl.innerHTML='<th>Circuito</th>'+colPairs.map(p=>`<th>${p.label}</th>`).join('')+'<th>Total</th>';
 
-  const factor=colPairs[0]&&colPairs[0].factor?colPairs[0].factor:1;
-
   const rows=circuitos.map((row,i)=>{
     const circ=(row[C.circuito]||'').trim();
-    const vals=colPairs.map(p=>Math.round(p.cols.reduce((acc,col)=>acc+toNum(row[col]),0)*factor));
+    const vals=colPairs.map(p=>p.fn(row));
     const rowTotal=vals.reduce((a,b)=>a+b,0);
     return{circ,vals,rowTotal,i};
   });
@@ -594,23 +655,33 @@ function renderTablaGenerica(headId, bodyId, filteredRows, colPairs){
 }
 
 function renderTablas(filteredRows){
-  // Tramos de 1 hora proyectados (×6 sobre conteo de 10 min de cada ventana)
-  // Usamos la misma lógica de los donuts: promedio de dos ventanas consecutivas ×6
-  // Pero aquí mostramos cada ventana individual ×6 (no el promedio entre dos)
-  // para que la tabla refleje la asistencia de cada hora concreta
+  // Usar exactamente la misma lógica que los donuts:
+  // cada tramo = promedio(ventana1_H+ventana1_M, ventana2_H+ventana2_M) × 6
+  // Esto garantiza que tabla y donut muestren los mismos valores.
+  // El tramo "13:50-14:00" NO aparece como columna separada: ya está dentro del tramo E.
+
   const tramosTabla=[
-    {label:'9:00–10:00',  hCol:C.h9,   mCol:C.m9   },
-    {label:'10:00–11:00', hCol:C.h10,  mCol:C.m10  },
-    {label:'11:00–12:00', hCol:C.h11,  mCol:C.m11  },
-    {label:'12:00–13:00', hCol:C.h12,  mCol:C.m12  },
-    {label:'13:00–14:00', hCol:C.h13,  mCol:C.m13  },
-    {label:'13:50–14:00', hCol:C.h1350,mCol:C.m1350},
+    {label:'9:00–10:00',  hCol1:C.h9,  mCol1:C.m9,  hCol2:C.h10, mCol2:C.m10 },
+    {label:'10:00–11:00', hCol1:C.h10, mCol1:C.m10, hCol2:C.h11, mCol2:C.m11 },
+    {label:'11:00–12:00', hCol1:C.h11, mCol1:C.m11, hCol2:C.h12, mCol2:C.m12 },
+    {label:'12:00–13:00', hCol1:C.h12, mCol1:C.m12, hCol2:C.h13, mCol2:C.m13 },
+    {label:'13:00–14:00', hCol1:C.h13, mCol1:C.m13, hCol2:C.h1350,mCol2:C.m1350},
   ];
 
-  // Para proyectar ×6: multiplicamos cada conteo bruto por 6
-  const pairsTotal=tramosTabla.map(t=>({label:t.label, cols:[t.hCol,t.mCol], factor:6}));
-  const pairsH    =tramosTabla.map(t=>({label:t.label, cols:[t.hCol],        factor:6}));
-  const pairsM    =tramosTabla.map(t=>({label:t.label, cols:[t.mCol],        factor:6}));
+  // Para Viña del Mar el tramo E (13:00-14:00) no aplica (sin datos de 13:50).
+  // En ese caso el valor calculado será bajo/cero por falta de datos, lo que es correcto.
+
+  function calcTramoRow(row, t, soloH, soloM){
+    const h1=toNum(row[t.hCol1]), m1=toNum(row[t.mCol1]);
+    const h2=toNum(row[t.hCol2]), m2=toNum(row[t.mCol2]);
+    if(soloH)  return Math.round(((h1+h2)/2)*6);
+    if(soloM)  return Math.round(((m1+m2)/2)*6);
+    return Math.round((((h1+m1)+(h2+m2))/2)*6);
+  }
+
+  const pairsTotal=tramosTabla.map(t=>({label:t.label, fn:(row)=>calcTramoRow(row,t,false,false)}));
+  const pairsH    =tramosTabla.map(t=>({label:t.label, fn:(row)=>calcTramoRow(row,t,true, false)}));
+  const pairsM    =tramosTabla.map(t=>({label:t.label, fn:(row)=>calcTramoRow(row,t,false,true )}));
 
   renderTablaGenerica('tablaTotalHead','tablaTotalBody',filteredRows,pairsTotal);
   renderTablaGenerica('tablaHHead',   'tablaHBody',    filteredRows,pairsH);
